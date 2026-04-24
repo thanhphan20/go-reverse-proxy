@@ -1,0 +1,8 @@
+{
+  "/api/users": "https://jsonplaceholder.typicode.com/users",
+  "/api/posts": "https://jsonplaceholder.typicode.com/posts",
+  "/api/todos": "https://jsonplaceholder.typicode.com/todos",
+  "/api/comments": "https://jsonplaceholder.typicode.com/comments",
+  "/api/albums": "https://jsonplaceholder.typicode.com/albums",
+  "/api/photos": "https://jsonplaceholder.typicode.com/photos"
+}
