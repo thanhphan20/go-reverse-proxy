@@ -1,0 +1,47 @@
+name: Go CD
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - name: Build binary for Linux
+      run: GOOS=linux GOARCH=amd64 go build -o proxy-bin ./cmd/proxy
+
+    - name: Copy binary to EC2
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: "proxy-bin"
+        target: "/home/${{ secrets.EC2_USER }}/go-reverse-proxy"
+
+    - name: Restart systemd service
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          cd /home/${{ secrets.EC2_USER }}/go-reverse-proxy
+          chmod +x proxy-bin
+          sudo mv proxy-bin proxy # Replace old binary
+          sudo systemctl restart proxy.service
+          sudo systemctl status proxy.service
