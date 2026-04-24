@@ -22,13 +22,13 @@ export default function Home() {
   const fetchData = async () => {
     try {
       const mRes = await fetch(`${API_URL}/api/metrics`);
-      setMetrics(await mRes.json());
+      if (mRes.ok) setMetrics(await mRes.json());
       const eRes = await fetch(`${API_URL}/api/events`);
-      setEvents(await eRes.json());
+      if (eRes.ok) setEvents(await eRes.json());
       const rRes = await fetch(`${API_URL}/api/routes`);
-      setRoutes(await rRes.json());
+      if (rRes.ok) setRoutes(await rRes.json());
     } catch (e) {
-      console.error("Failed to fetch proxy API", e);
+      // Proxy offline or unreachable. Suppress log.
     }
   };
 

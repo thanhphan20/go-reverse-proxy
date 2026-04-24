@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 
 	"github.com/user/go-reverse-proxy/internal/config"
 	"github.com/user/go-reverse-proxy/internal/events"
@@ -14,11 +18,38 @@ import (
 
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+		allowList := strings.Split(allowedOrigins, ",")
+
+		allowed := false
+		if origin != "" {
+			for _, o := range allowList {
+				if strings.TrimSpace(o) == origin {
+					allowed = true
+					break
+				}
+			}
+		}
+
+		if allowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		
 		if r.Method == "OPTIONS" {
+			if origin != "" && !allowed {
+				http.Error(w, "CORS origin not allowed", http.StatusForbidden)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		if origin != "" && !allowed {
+			http.Error(w, "CORS origin not allowed", http.StatusForbidden)
 			return
 		}
 		next(w, r)
@@ -26,6 +57,7 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func main() {
+	godotenv.Load()
 	config.Load()
 	worker := events.NewWorker(100)
 	worker.Start()
