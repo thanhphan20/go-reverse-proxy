@@ -28,7 +28,19 @@ jobs:
     - name: Test binary
       run: |
         chmod +x proxy-bin
-        ./proxy-bin --help || true
+
+        # start server in background
+        ./proxy-bin &
+        PID=$!
+
+        # wait for server to boot
+        sleep 2
+
+        # test health endpoint
+        curl -f http://localhost:8080/health
+
+        # kill process
+        kill $PID
 
     - name: Copy binary to EC2
       uses: appleboy/scp-action@v0.1.7
