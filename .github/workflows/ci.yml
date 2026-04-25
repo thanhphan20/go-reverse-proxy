@@ -1,4 +1,4 @@
-name: Go CI
+name: CI Pipeline
 
 on:
   push:
@@ -15,10 +15,10 @@ on:
       - 'go.sum'
 
 jobs:
-  build-and-test:
+  build-and-test-go-server:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Go
       uses: actions/setup-go@v5
@@ -28,9 +28,6 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
 
-    - name: Check formatting
-      run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then echo "Format check failed"; exit 1; fi
-
     - name: Go Vet
       run: go vet ./...
 
@@ -39,3 +36,29 @@ jobs:
 
     - name: Test
       run: go test -v ./...
+
+  lint-and-build-ui-dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/workers
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: services/workers/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build

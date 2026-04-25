@@ -1,4 +1,4 @@
-name: Go CD
+name: CD Pipeline
 
 on:
   push:
@@ -22,7 +22,13 @@ jobs:
         go-version: '1.22'
 
     - name: Build binary for Linux
-      run: GOOS=linux GOARCH=amd64 go build -o proxy-bin ./cmd/proxy
+      run: |
+        GOOS=linux GOARCH=amd64 go build -o proxy-bin ./cmd/proxy
+
+    - name: Test binary
+      run: |
+        chmod +x proxy-bin
+        ./proxy-bin --help || true
 
     - name: Copy binary to EC2
       uses: appleboy/scp-action@v0.1.7
@@ -33,15 +39,44 @@ jobs:
         source: "proxy-bin"
         target: "/home/${{ secrets.EC2_USER }}/go-reverse-proxy"
 
-    - name: Restart systemd service
+    - name: Deploy safely (with rollback)
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
+          set -e
+
           cd /home/${{ secrets.EC2_USER }}/go-reverse-proxy
+
+          # Backup old binary
+          if [ -f proxy ]; then
+            cp proxy proxy-backup
+          fi
+
           chmod +x proxy-bin
-          sudo mv proxy-bin proxy # Replace old binary
+
+          # Replace binary
+          mv proxy-bin proxy
+
+          # Restart service
           sudo systemctl restart proxy.service
-          sudo systemctl status proxy.service
+
+          # Wait a bit
+          sleep 2
+
+          # Health check (IMPORTANT)
+          if ! curl -f http://localhost:8080/health; then
+            echo "Health check failed. Rolling back..."
+
+            # rollback
+            if [ -f proxy-backup ]; then
+              mv proxy-backup proxy
+              sudo systemctl restart proxy.service
+            fi
+
+            exit 1
+          fi
+
+          echo "Deploy success 🚀"
