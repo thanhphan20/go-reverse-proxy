@@ -1,9 +1,13 @@
 package blocklist
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/user/go-reverse-proxy/internal/config"
 )
 
 // knownBotPaths are exact paths commonly scanned by bots/vulnerability scanners.
@@ -82,6 +86,21 @@ var knownBotSuffixes = []string{
 	".DS_Store",
 }
 
+// suspicious user agents
+var badUserAgents = []string{
+	"curl",
+	"wget",
+	"python",
+	"scanner",
+	"sqlmap",
+	"nikto",
+	"masscan",
+	"zgrab",
+}
+
+var requestLog = make(map[string][]time.Time)
+var requestLogMu sync.RWMutex
+
 // isBot returns true if the request path matches a known bot/scanner pattern.
 func isBot(path string) bool {
 	lower := strings.ToLower(path)
@@ -108,15 +127,91 @@ func isBot(path string) bool {
 	return false
 }
 
+func isRateLimited(ip string) bool {
+	cfg := config.GetConfig()
+	now := time.Now()
+	window := cfg.RateLimit.Window
+	limit := cfg.RateLimit.Requests
+
+	requestLogMu.Lock()
+	timestamps := requestLog[ip]
+	var valid []time.Time
+
+	for _, t := range timestamps {
+		if now.Sub(t) < window {
+			valid = append(valid, t)
+		}
+	}
+
+	if len(valid) >= limit {
+		requestLog[ip] = valid
+		requestLogMu.Unlock()
+		return true
+	}
+
+	valid = append(valid, now)
+	requestLog[ip] = valid
+	requestLogMu.Unlock()
+	return false
+}
+
+func isBadUA(ua string) bool {
+	ua = strings.ToLower(ua)
+	for _, bad := range badUserAgents {
+		if strings.Contains(ua, bad) {
+			return true
+		}
+	}
+	return false
+}
+
 // Middleware returns an http.Handler that blocks known bot/scanner paths.
 // It wraps the given next handler and rejects suspicious requests with 403.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := r.RemoteAddr
+		ua := r.UserAgent()
+
+		if isRateLimited(ip) {
+			slog.Warn("blocked rate limited", "path", r.URL.Path, "ip", ip)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		if isBadUA(ua) {
+			slog.Warn("blocked bad user agent", "method", r.Method, "path", r.URL.Path, "ip", ip, "ua", ua)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		if isBot(r.URL.Path) {
-			log.Printf("[BLOCKED] bot/scanner request: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+			slog.Warn("blocked bot/scanner", "method", r.Method, "path", r.URL.Path, "ip", ip)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func CleanupRequestLog() {
+	ticker := time.NewTicker(1 * time.Minute)
+	for range ticker.C {
+		now := time.Now()
+		window := config.GetConfig().RateLimit.Window
+		requestLogMu.Lock()
+		for ip, timestamps := range requestLog {
+			var valid []time.Time
+			for _, t := range timestamps {
+				if now.Sub(t) < window {
+					valid = append(valid, t)
+				}
+			}
+			if len(valid) == 0 {
+				delete(requestLog, ip)
+			} else {
+				requestLog[ip] = valid
+			}
+		}
+		requestLogMu.Unlock()
+	}
 }

@@ -9,6 +9,7 @@ type Event struct {
 	Status    int    `json:"status"`
 	Latency   int64  `json:"latency"`
 	FromCache bool   `json:"from_cache"`
+	RequestID string `json:"request_id"`
 }
 
 type EventWorker struct {

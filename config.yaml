@@ -1,0 +1,24 @@
+routes:
+    /api/comments:
+        - https://jsonplaceholder.typicode.com/comments
+    /api/posts:
+        - https://jsonplaceholder.typicode.com/posts
+    /api/users:
+        - https://jsonplaceholder.typicode.com/users
+proxy:
+    timeout:
+        dial: 30s
+        response_header: 30s
+    retries: 3
+cache:
+    ttl: 10s
+    skip_errors: true
+rate_limit:
+    requests: 20
+    window: 10s
+    per_ip: false
+logging:
+    level: info
+health:
+    interval: 30s
+    timeout: 5s

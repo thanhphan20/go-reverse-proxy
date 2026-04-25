@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/user/go-reverse-proxy/internal/blocklist"
 	"github.com/user/go-reverse-proxy/internal/config"
 	"github.com/user/go-reverse-proxy/internal/events"
+	"github.com/user/go-reverse-proxy/internal/health"
 	"github.com/user/go-reverse-proxy/internal/metrics"
 	"github.com/user/go-reverse-proxy/internal/proxy"
 )
@@ -24,9 +26,10 @@ import (
 // ---------------------------------------------------------------------------
 
 type DashboardState struct {
-	Metrics metrics.Metrics   `json:"metrics"`
-	Events  []events.Event    `json:"events"`
-	Routes  map[string]string `json:"routes"`
+	Metrics metrics.Metrics     `json:"metrics"`
+	Events  []events.Event      `json:"events"`
+	Routes  map[string][]string `json:"routes"`
+	Health  map[string]bool     `json:"health"`
 }
 
 type SSEBroker struct {
@@ -74,6 +77,7 @@ func broadcaster(broker *SSEBroker, worker *events.EventWorker) {
 			Metrics: metrics.Get(),
 			Events:  worker.GetRecent(),
 			Routes:  config.GetAll(),
+			Health:  health.GetHealth(),
 		}
 		data, _ := json.Marshal(state)
 		js := string(data)
@@ -136,10 +140,28 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 func main() {
 	godotenv.Load()
 	config.Load()
+
+	// Setup structured logging
+	level := slog.LevelInfo
+	switch strings.ToLower(config.GetConfig().Logging.Level) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(handler))
+
+	go health.StartHealthChecks()
+
 	worker := events.NewWorker(100)
 	worker.Start()
 
-	prx := proxy.NewProxy(worker, 10*time.Second)
+	go blocklist.CleanupRequestLog()
+
+	prx := proxy.NewProxy(worker)
 
 	broker := NewSSEBroker()
 	go broadcaster(broker, worker)
@@ -166,6 +188,7 @@ func main() {
 			Metrics: metrics.Get(),
 			Events:  worker.GetRecent(),
 			Routes:  config.GetAll(),
+			Health:  health.GetHealth(),
 		}
 		if data, err := json.Marshal(state); err == nil {
 			fmt.Fprintf(w, "data: %s\n\n", data)
@@ -205,14 +228,14 @@ func main() {
 		}
 		if r.Method == http.MethodPost {
 			var input struct {
-				Path   string `json:"path"`
-				Target string `json:"target"`
+				Path    string   `json:"path"`
+				Targets []string `json:"targets"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			config.UpdateRoute(input.Path, input.Target)
+			config.UpdateRoute(input.Path, input.Targets)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -228,6 +251,16 @@ func main() {
 		}
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}))
+
+	// Health checks
+	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+	apiMux.HandleFunc("/health/routes", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
 	// --- Proxy handler wrapped with bot blocklist ---
 	apiMux.Handle("/", blocklist.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
