@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: services/workers
+        working-directory: ui
     steps:
       - uses: actions/checkout@v6
 
