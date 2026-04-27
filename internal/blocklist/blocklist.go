@@ -62,6 +62,7 @@ var knownBotPrefixes = []string{
 	"/tomcat/",
 	"/cgi-bin/",
 	"/owa/",
+	"/var/log/",
 }
 
 // knownBotSuffixes are file extensions typically probed by scanners.
@@ -96,6 +97,9 @@ var badUserAgents = []string{
 	"nikto",
 	"masscan",
 	"zgrab",
+	"bot",
+	"crawler",
+	"spider",
 }
 
 var requestLog = make(map[string][]time.Time)

@@ -158,10 +158,12 @@ func main() {
 
 	worker := events.NewWorker(100)
 	worker.Start()
+	go worker.Cleanup()
 
 	go blocklist.CleanupRequestLog()
 
 	prx := proxy.NewProxy(worker)
+	go prx.CleanupCache()
 
 	broker := NewSSEBroker()
 	go broadcaster(broker, worker)

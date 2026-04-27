@@ -2,6 +2,7 @@ package events
 
 import (
 	"sync"
+	"time"
 )
 
 type Event struct {
@@ -38,6 +39,16 @@ func (w *EventWorker) Start() {
 			w.mu.Unlock()
 		}
 	}()
+}
+
+func (w *EventWorker) Cleanup() {
+	// Clears entire event buffer every 24 hours to keep history fresh
+	ticker := time.NewTicker(24 * time.Hour)
+	for range ticker.C {
+		w.mu.Lock()
+		w.buffer = w.buffer[:0]
+		w.mu.Unlock()
+	}
 }
 
 func (w *EventWorker) Emit(ev Event) {

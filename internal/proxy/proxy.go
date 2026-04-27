@@ -43,6 +43,20 @@ func NewProxy(worker *events.EventWorker) *Proxy {
 	}
 }
 
+func (p *Proxy) CleanupCache() {
+	ticker := time.NewTicker(5 * time.Minute)
+	for range ticker.C {
+		now := time.Now()
+		p.cacheMu.Lock()
+		for key, item := range p.cache {
+			if now.After(item.ExpiresAt) {
+				delete(p.cache, key)
+			}
+		}
+		p.cacheMu.Unlock()
+	}
+}
+
 func generateID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
@@ -77,6 +91,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		ev.Latency = time.Since(start).Milliseconds()
 		metrics.IncLatency(ev.Latency)
+		if ev.Status == http.StatusNotFound && ev.Path == "/" {
+			return // silence noise from root bots in event feed
+		}
 		p.eventWorker.Emit(ev)
 	}()
 
@@ -114,8 +131,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		ev.Status = http.StatusNotFound
-		metrics.IncError()
-		slog.Error("route not found", "path", r.URL.Path, "id", id)
+		if r.URL.Path != "/" {
+			metrics.IncError()
+			slog.Error("route not found", "path", r.URL.Path, "id", id)
+		}
 		http.Error(w, "Route not found", http.StatusNotFound)
 		return
 	}
