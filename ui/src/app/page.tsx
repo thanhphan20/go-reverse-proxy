@@ -92,7 +92,9 @@ export default function Home() {
   const [newPath, setNewPath] = useState("");
   const [newTarget, setNewTarget] = useState("");
   const [testPath, setTestPath] = useState("");
-  const [testResponse, setTestResponse] = useState<any>(null);
+  const [testResponse, setTestResponse] = useState<
+    { status: number; data: unknown; headers: Record<string, string> } | { error: string } | null
+  >(null);
   const [isTesting, setIsTesting] = useState(false);
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
@@ -103,7 +105,7 @@ export default function Home() {
     let retryTimeout: ReturnType<typeof setTimeout>;
 
     const connect = () => {
-      es = new EventSource(`${API_URL}/api/stream`);
+      es = new EventSource(`/api/stream`);
 
       es.onopen = () => setConnected(true);
 
@@ -136,7 +138,7 @@ export default function Home() {
   // ── Route mutations (still use REST, then SSE will auto-refresh) ────────────
 
   const handleDeleteRoute = async (path: string) => {
-    await fetch(`${API_URL}/api/routes?path=${encodeURIComponent(path)}`, {
+    await fetch(`/api/routes?path=${encodeURIComponent(path)}`, {
       method: "DELETE",
     });
   };
@@ -153,7 +155,7 @@ export default function Home() {
       .split(",")
       .map((t) => t.trim())
       .filter((t) => t);
-    await fetch(`${API_URL}/api/routes`, {
+    await fetch(`/api/routes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: newPath, targets }),
@@ -176,8 +178,8 @@ export default function Home() {
         data,
         headers: Object.fromEntries(res.headers.entries()),
       });
-    } catch (err: any) {
-      setTestResponse({ error: err.message });
+    } catch (err: unknown) {
+      setTestResponse({ error: err instanceof Error ? err.message : String(err) });
     } finally {
       setIsTesting(false);
     }
@@ -584,7 +586,7 @@ export default function Home() {
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70" />
                   </div>
                   <span className="text-xs font-mono text-gray-500">response.json</span>
-                  {testResponse && (
+                  {testResponse && "status" in testResponse && (
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                         testResponse.status < 400 ? "bg-emerald-900/60 text-emerald-300" : "bg-red-900/60 text-red-300"
@@ -598,7 +600,9 @@ export default function Home() {
                 <div className="flex-1 overflow-auto p-4 font-mono text-xs text-emerald-400 scrollbar-thin scrollbar-thumb-gray-800">
                   {testResponse ? (
                     <pre className="whitespace-pre-wrap">
-                      {testResponse.error ? `Error: ${testResponse.error}` : JSON.stringify(testResponse.data, null, 2)}
+                      {"error" in testResponse
+                        ? `Error: ${testResponse.error}`
+                        : JSON.stringify(testResponse.data, null, 2)}
                     </pre>
                   ) : (
                     <div className="flex items-center justify-center h-full text-gray-700 italic select-none">
